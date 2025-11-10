@@ -562,37 +562,16 @@ export default function InternEvaluationPage() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div
-            style={{
-              width: '48px',
-              height: '48px',
-              background: 'linear-gradient(135deg, #2c86ff 0%, #1a5dd6 100%)',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              fontSize: '24px',
-              fontWeight: 'bold',
-              boxShadow: '0 4px 12px rgba(44, 134, 255, 0.3)',
-            }}
-          >
-            C
-          </div>
           <div>
-            <div
+            <img
+              src="/logo.jpg"
+              alt="CEH Logo"
               style={{
-                fontSize: '20px',
-                fontWeight: 700,
-                color: '#2c86ff',
-                lineHeight: 1.2,
+                width: 120,
+                height: 'auto',
+                objectFit: 'contain',
               }}
-            >
-              CEH Corporation
-            </div>
-            <div style={{ fontSize: '12px', color: '#666' }}>
-              Human Resource Management System
-            </div>
+            />
           </div>
         </div>
 
@@ -928,13 +907,10 @@ export default function InternEvaluationPage() {
                 </div>
                 <div>
                   <div style={{ fontSize: '18px', fontWeight: 700, color: '#2c86ff' }}>
-                    CEH Corporation
+                    CEH
                   </div>
                 </div>
               </div>
-              <p style={{ color: 'rgba(255,255,255,0.65)', fontSize: '14px', marginBottom: 0 }}>
-                Công ty TNHH Công nghệ CEH - Giải pháp nhân sự toàn diện cho doanh nghiệp hiện đại.
-              </p>
               <Space size="middle">
                 <Button
                   type="text"
@@ -1063,6 +1039,7 @@ export default function InternEvaluationPage() {
               <Option value="Design">Design</Option>
               <Option value="HR">HR</Option>
               <Option value="Sales">Sales</Option>
+              <Option value="Triển khai">Sales</Option>
             </Select>
           </Form.Item>
 
@@ -1099,6 +1076,8 @@ export default function InternEvaluationPage() {
       </Modal>
 
       {/* Drawer Đánh giá chi tiết */}
+
+
       <Drawer
         title={
           <Space>
