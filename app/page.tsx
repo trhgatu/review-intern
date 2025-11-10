@@ -23,6 +23,13 @@ import {
   Divider,
   Spin,
   message,
+  Modal,
+  Form,
+  Popconfirm,
+  Drawer,
+  Descriptions,
+  Timeline,
+  Tabs,
 } from 'antd';
 import {
   UserOutlined,
@@ -45,17 +52,23 @@ import {
   LinkedinOutlined,
   TwitterOutlined,
   ReloadOutlined,
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  EyeOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import dayjs from 'dayjs';
 
 const { Header, Content, Footer } = Layout;
 const { RangePicker } = DatePicker;
 const { Option } = Select;
+const { TextArea } = Input;
+const { TabPane } = Tabs;
 
-// API URL
-const API_URL = 'https://script.google.com/macros/s/AKfycbwVuuQz9lQCPnMUOwztDrLyzlgCa9rtoh4-X6qqA7fgsz3vF-T-WeLwwFeXSB3wRrsr/exec';
+const API_URL = "/api/interns";
 
-// Interface cho dữ liệu từ API
 interface ApiInternData {
   id: number;
   name: string;
@@ -66,7 +79,6 @@ interface ApiInternData {
   feedback: string;
 }
 
-// Interface cho dữ liệu hiển thị
 interface InternData {
   key: string;
   id: number;
@@ -85,13 +97,31 @@ interface InternData {
   feedback: string;
 }
 
+// Interface cho form đánh giá
+interface EvaluationForm {
+  skillRating: number;
+  attitudeRating: number;
+  teamworkRating: number;
+  communicationRating: number;
+  creativityRating: number;
+  overallRating: number;
+  feedback: string;
+  recommendations: string;
+}
+
 export default function InternEvaluationPage() {
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
   const [searchText, setSearchText] = useState<string>('');
   const [internData, setInternData] = useState<InternData[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [isModalVisible, setIsModalVisible] = useState<boolean>(false);
+  const [isEvaluationDrawerVisible, setIsEvaluationDrawerVisible] = useState<boolean>(false);
+  const [isDetailDrawerVisible, setIsDetailDrawerVisible] = useState<boolean>(false);
+  const [editingIntern, setEditingIntern] = useState<InternData | null>(null);
+  const [selectedIntern, setSelectedIntern] = useState<InternData | null>(null);
+  const [form] = Form.useForm();
+  const [evaluationForm] = Form.useForm();
 
-  // Hàm chuyển đổi status từ API sang format hiển thị
   const normalizeStatus = (status: string): string => {
     const statusMap: { [key: string]: string } = {
       'excellent': 'excellent',
@@ -104,7 +134,7 @@ export default function InternEvaluationPage() {
     return statusMap[status.toLowerCase()] || 'average';
   };
 
-  // Hàm tính rating từ avg_score (giả sử avg_score là ngày, ta sẽ dùng logic khác)
+  // Hàm tính rating từ status
   const calculateRating = (status: string): number => {
     const statusRating: { [key: string]: number } = {
       'excellent': 5.0,
@@ -132,7 +162,6 @@ export default function InternEvaluationPage() {
     return `${months} tháng`;
   };
 
-  // Format ngày
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
     const day = String(date.getDate()).padStart(2, '0');
@@ -140,8 +169,6 @@ export default function InternEvaluationPage() {
     const year = date.getFullYear();
     return `${day}/${month}/${year}`;
   };
-
-  // Fetch dữ liệu từ API
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -151,7 +178,6 @@ export default function InternEvaluationPage() {
       }
       const data: ApiInternData[] = await response.json();
 
-      // Chuyển đổi dữ liệu từ API sang format hiển thị
       const transformedData: InternData[] = data.map((item, index) => {
         const rating = calculateRating(item.status);
         const progress = calculateProgress(rating);
@@ -163,7 +189,7 @@ export default function InternEvaluationPage() {
           name: item.name,
           avatar: `https://i.pravatar.cc/150?img=${item.id}`,
           department: item.department,
-          mentor: `Mentor ${index + 1}`, // Vì API không có mentor, ta tạo tạm
+          mentor: `Mentor ${index + 1}`,
           startDate: formatDate(item.start_date),
           duration: calculateDuration(item.start_date),
           progress: progress,
@@ -185,12 +211,183 @@ export default function InternEvaluationPage() {
       setLoading(false);
     }
   };
+
   /* eslint-disable */
   useEffect(() => {
     fetchData();
   }, []);
 
-  // Menu người dùng
+  const handleAddEdit = async () => {
+    try {
+      const values = await form.validateFields();
+      setLoading(true);
+
+      // ✅ Tạo payload JSON chuẩn
+      const payload: Record<string, any> = {
+        action: editingIntern ? "update" : "create",
+        name: values.name,
+        department: values.department,
+        start_date: dayjs(values.startDate).toISOString(),
+        status: values.status,
+        feedback: values.feedback || "",
+      };
+
+      // Nếu là update thì thêm id
+      if (editingIntern) {
+        payload.id = editingIntern.id;
+      }
+
+      // ✅ Gửi JSON body qua Next.js proxy
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        message.success(
+          editingIntern
+            ? "Cập nhật học viên thành công!"
+            : "Thêm học viên thành công!"
+        );
+        await fetchData();
+      } else {
+        message.error("Thao tác thất bại: " + result.message);
+      }
+
+      setIsModalVisible(false);
+      form.resetFields();
+      setEditingIntern(null);
+    } catch (error) {
+      console.error("Error in handleAddEdit:", error);
+      message.error("Có lỗi xảy ra, vui lòng thử lại!");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+
+  const handleDelete = async (id: number) => {
+    try {
+      setLoading(true);
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "delete",
+          id: id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        message.success("Xóa học viên thành công!");
+        await fetchData();
+      } else {
+        message.error("Xóa thất bại: " + result.message);
+      }
+    } catch (error) {
+      console.error("Error in handleDelete:", error);
+      message.error("Có lỗi xảy ra, vui lòng thử lại!");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  const showModal = (intern?: InternData) => {
+    if (intern) {
+      setEditingIntern(intern);
+      form.setFieldsValue({
+        name: intern.name,
+        department: intern.department,
+        startDate: dayjs(intern.startDate, 'DD/MM/YYYY'),
+        feedback: intern.feedback,
+        status: intern.status === 'excellent' ? 'Excellent' :
+          intern.status === 'good' ? 'Good' :
+            intern.status === 'average' ? 'Average' : 'Needs Improvement',
+      });
+    } else {
+      setEditingIntern(null);
+      form.resetFields();
+    }
+    setIsModalVisible(true);
+  };
+
+  // Mở drawer đánh giá
+  const showEvaluationDrawer = (intern: InternData) => {
+    setSelectedIntern(intern);
+    evaluationForm.resetFields();
+    setIsEvaluationDrawerVisible(true);
+  };
+
+  // Mở drawer chi tiết
+  const showDetailDrawer = (intern: InternData) => {
+    setSelectedIntern(intern);
+    setIsDetailDrawerVisible(true);
+  };
+
+  const handleEvaluation = async () => {
+    try {
+      const values: EvaluationForm = await evaluationForm.validateFields();
+      setLoading(true);
+
+      const avgRating =
+        (values.skillRating +
+          values.attitudeRating +
+          values.teamworkRating +
+          values.communicationRating +
+          values.creativityRating) /
+        5;
+
+      const formData = new URLSearchParams();
+      formData.append("action", "update");
+      formData.append("id", selectedIntern?.id ? String(selectedIntern.id) : "");
+      formData.append("feedback", values.feedback);
+      formData.append("avg_score", avgRating.toFixed(1));
+      formData.append(
+        "status",
+        avgRating >= 4.5
+          ? "Excellent"
+          : avgRating >= 4.0
+            ? "Good"
+            : avgRating >= 3.0
+              ? "Average"
+              : "Needs Improvement"
+      );
+
+      const response = await fetch(API_URL, {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        message.success("Đánh giá thành công!");
+        await fetchData();
+        setIsEvaluationDrawerVisible(false);
+        evaluationForm.resetFields();
+      } else {
+        message.error("Lưu đánh giá thất bại: " + result.message);
+      }
+    } catch (error) {
+      console.error("Error in handleEvaluation:", error);
+      message.error("Có lỗi xảy ra, vui lòng thử lại!");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
   const userMenu = (
     <Menu>
       <Menu.Item key="profile" icon={<UserOutlined />}>
@@ -206,7 +403,6 @@ export default function InternEvaluationPage() {
     </Menu>
   );
 
-  // Cấu hình cột cho bảng
   const columns: ColumnsType<InternData> = [
     {
       title: 'Nhân viên',
@@ -259,27 +455,6 @@ export default function InternEvaluationPage() {
       ),
     },
     {
-      title: 'Công việc',
-      key: 'tasks',
-      width: 120,
-      render: (_, record: InternData) => (
-        <span>
-          {record.tasksCompleted}/{record.totalTasks}
-        </span>
-      ),
-    },
-    {
-      title: 'Chuyên cần',
-      dataIndex: 'attendance',
-      key: 'attendance',
-      width: 100,
-      render: (attendance: number) => (
-        <span style={{ color: attendance >= 90 ? '#52c41a' : attendance >= 80 ? '#faad14' : '#ff4d4f' }}>
-          {attendance}%
-        </span>
-      ),
-    },
-    {
       title: 'Đánh giá',
       dataIndex: 'rating',
       key: 'rating',
@@ -305,26 +480,62 @@ export default function InternEvaluationPage() {
       },
     },
     {
-      title: 'Nhận xét',
-      dataIndex: 'feedback',
-      key: 'feedback',
+      title: 'Hành động',
+      key: 'actions',
+      fixed: 'right',
       width: 200,
-      ellipsis: true,
+      render: (_, record: InternData) => (
+        <Space size="small">
+          <Button
+            type="link"
+            icon={<EyeOutlined />}
+            onClick={() => showDetailDrawer(record)}
+            size="small"
+          >
+            Xem
+          </Button>
+          <Button
+            type="link"
+            icon={<StarOutlined />}
+            onClick={() => showEvaluationDrawer(record)}
+            size="small"
+            style={{ color: '#faad14' }}
+          >
+            Đánh giá
+          </Button>
+          <Button
+            type="link"
+            icon={<EditOutlined />}
+            onClick={() => showModal(record)}
+            size="small"
+          />
+          <Popconfirm
+            title="Bạn có chắc muốn xóa học viên này?"
+            onConfirm={() => handleDelete(record.id)}
+            okText="Xóa"
+            cancelText="Hủy"
+          >
+            <Button
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              size="small"
+            />
+          </Popconfirm>
+        </Space>
+      ),
     },
   ];
 
-  // Lọc dữ liệu
   const filteredData = internData.filter((item) => {
     const matchDepartment = selectedDepartment === 'all' || item.department === selectedDepartment;
     const matchSearch = item.name.toLowerCase().includes(searchText.toLowerCase()) ||
-                       item.mentor.toLowerCase().includes(searchText.toLowerCase());
+      item.mentor.toLowerCase().includes(searchText.toLowerCase());
     return matchDepartment && matchSearch;
   });
 
-  // Lấy danh sách phòng ban unique từ dữ liệu
   const departments = Array.from(new Set(internData.map(item => item.department)));
 
-  // Thống kê tổng quan
   const totalInterns = internData.length;
   const excellentInterns = internData.filter(item => item.status === 'excellent').length;
   const avgProgress = internData.length > 0
@@ -350,7 +561,6 @@ export default function InternEvaluationPage() {
           justifyContent: 'space-between',
         }}
       >
-        {/* Logo và tên công ty */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <div
             style={{
@@ -386,7 +596,6 @@ export default function InternEvaluationPage() {
           </div>
         </div>
 
-        {/* Menu điều hướng */}
         <Space size="large" style={{ flex: 1, justifyContent: 'center' }}>
           <Button type="text" icon={<HomeOutlined />}>
             Trang chủ
@@ -402,7 +611,6 @@ export default function InternEvaluationPage() {
           </Button>
         </Space>
 
-        {/* Thông tin người dùng */}
         <Space size="middle">
           <Badge count={5} size="small">
             <Button
@@ -456,6 +664,19 @@ export default function InternEvaluationPage() {
           <Col>
             <Space>
               <Button
+                icon={<PlusOutlined />}
+                size="large"
+                onClick={() => showModal()}
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  color: '#fff',
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  fontWeight: 500,
+                }}
+              >
+                Thêm học viên
+              </Button>
+              <Button
                 icon={<ReloadOutlined />}
                 size="large"
                 onClick={fetchData}
@@ -486,191 +707,188 @@ export default function InternEvaluationPage() {
           </Col>
         </Row>
       </div>
-
-      {/* CONTENT */}
       <Content style={{ padding: '32px', background: '#f5f7fa' }}>
         <Spin spinning={loading} size="large" tip="Đang tải dữ liệu...">
-          {/* Thống kê tổng quan */}
           <Row gutter={[16, 16]} style={{ marginBottom: '24px' }}>
-          <Col xs={24} sm={12} lg={6}>
-            <Card
-              bordered={false}
-              style={{
-                borderRadius: '12px',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                background: 'linear-gradient(135deg, #2c86ff 0%, #4ba3ff 100%)',
-                overflow: 'hidden',
-              }}
-            >
-              <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>Tổng số học viên</span>}
-                value={totalInterns}
-                prefix={<TeamOutlined />}
-                valueStyle={{ color: '#fff', fontSize: '36px', fontWeight: 700 }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={6}>
-            <Card
-              bordered={false}
-              style={{
-                borderRadius: '12px',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                background: 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)',
-                overflow: 'hidden',
-              }}
-            >
-              <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>Xuất sắc</span>}
-                value={excellentInterns}
-                prefix={<TrophyOutlined />}
-                suffix={`/ ${totalInterns}`}
-                valueStyle={{ color: '#fff', fontSize: '36px', fontWeight: 700 }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={6}>
-            <Card
-              bordered={false}
-              style={{
-                borderRadius: '12px',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                background: 'linear-gradient(135deg, #fa8c16 0%, #ffa940 100%)',
-                overflow: 'hidden',
-              }}
-            >
-              <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>Tiến độ trung bình</span>}
-                value={avgProgress}
-                prefix={<RiseOutlined />}
-                suffix="%"
-                valueStyle={{ color: '#fff', fontSize: '36px', fontWeight: 700 }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={6}>
-            <Card
-              bordered={false}
-              style={{
-                borderRadius: '12px',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                background: 'linear-gradient(135deg, #eb2f96 0%, #f759ab 100%)',
-                overflow: 'hidden',
-              }}
-            >
-              <Statistic
-                title={<span style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>Đánh giá trung bình</span>}
-                value={avgRating}
-                prefix={<StarOutlined />}
-                suffix="/ 5.0"
-                valueStyle={{ color: '#fff', fontSize: '36px', fontWeight: 700 }}
-              />
-            </Card>
-          </Col>
-        </Row>
-
-        {/* Bộ lọc */}
-        <Card
-          bordered={false}
-          style={{
-            marginBottom: '24px',
-            borderRadius: '12px',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-          }}
-        >
-          <Row gutter={[16, 16]}>
-            <Col xs={24} sm={12} md={8}>
-              <Input
-                placeholder="Tìm kiếm theo tên, người hướng dẫn..."
-                prefix={<SearchOutlined style={{ color: '#2c86ff' }} />}
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                allowClear
-                size="large"
-              />
-            </Col>
-            <Col xs={24} sm={12} md={8}>
-              <Select
-                style={{ width: '100%' }}
-                placeholder="Chọn phòng ban"
-                value={selectedDepartment}
-                onChange={setSelectedDepartment}
-                size="large"
+            <Col xs={24} sm={12} lg={6}>
+              <Card
+                bordered={false}
+                style={{
+                  borderRadius: '12px',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                  background: 'linear-gradient(135deg, #2c86ff 0%, #4ba3ff 100%)',
+                  overflow: 'hidden',
+                }}
               >
-                <Option value="all">Tất cả phòng ban</Option>
-                {departments.map((dept) => (
-                  <Option key={dept} value={dept}>
-                    {dept}
-                  </Option>
-                ))}
-              </Select>
+                <Statistic
+                  title={<span style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>Tổng số học viên</span>}
+                  value={totalInterns}
+                  prefix={<TeamOutlined />}
+                  valueStyle={{ color: '#fff', fontSize: '36px', fontWeight: 700 }}
+                />
+              </Card>
             </Col>
-            <Col xs={24} sm={24} md={8}>
-              <RangePicker
-                style={{ width: '100%' }}
-                placeholder={['Từ ngày', 'Đến ngày']}
-                size="large"
-              />
+            <Col xs={24} sm={12} lg={6}>
+              <Card
+                bordered={false}
+                style={{
+                  borderRadius: '12px',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                  background: 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)',
+                  overflow: 'hidden',
+                }}
+              >
+                <Statistic
+                  title={<span style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>Xuất sắc</span>}
+                  value={excellentInterns}
+                  prefix={<TrophyOutlined />}
+                  suffix={`/ ${totalInterns}`}
+                  valueStyle={{ color: '#fff', fontSize: '36px', fontWeight: 700 }}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} lg={6}>
+              <Card
+                bordered={false}
+                style={{
+                  borderRadius: '12px',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                  background: 'linear-gradient(135deg, #fa8c16 0%, #ffa940 100%)',
+                  overflow: 'hidden',
+                }}
+              >
+                <Statistic
+                  title={<span style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>Tiến độ trung bình</span>}
+                  value={avgProgress}
+                  prefix={<RiseOutlined />}
+                  suffix="%"
+                  valueStyle={{ color: '#fff', fontSize: '36px', fontWeight: 700 }}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} lg={6}>
+              <Card
+                bordered={false}
+                style={{
+                  borderRadius: '12px',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                  background: 'linear-gradient(135deg, #eb2f96 0%, #f759ab 100%)',
+                  overflow: 'hidden',
+                }}
+              >
+                <Statistic
+                  title={<span style={{ color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>Đánh giá trung bình</span>}
+                  value={avgRating}
+                  prefix={<StarOutlined />}
+                  suffix="/ 5.0"
+                  valueStyle={{ color: '#fff', fontSize: '36px', fontWeight: 700 }}
+                />
+              </Card>
             </Col>
           </Row>
-        </Card>
 
-        {/* Bảng danh sách */}
-        <Card
-          bordered={false}
-          style={{
-            borderRadius: '12px',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-          }}
-          title={
-            <Space>
-              <Badge count={filteredData.length} showZero color="#2c86ff" />
-              <span style={{ fontSize: '16px', fontWeight: 600 }}>Danh sách nhân viên học việc</span>
-            </Space>
-          }
-        >
-          <Table
-            columns={columns}
-            dataSource={filteredData}
-            scroll={{ x: 1200 }}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              showTotal: (total) => `Tổng ${total} học viên`,
+          {/* Bộ lọc */}
+          <Card
+            bordered={false}
+            style={{
+              marginBottom: '24px',
+              borderRadius: '12px',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
             }}
-          />
-        </Card>
+          >
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12} md={8}>
+                <Input
+                  placeholder="Tìm kiếm theo tên, người hướng dẫn..."
+                  prefix={<SearchOutlined style={{ color: '#2c86ff' }} />}
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  allowClear
+                  size="large"
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8}>
+                <Select
+                  style={{ width: '100%' }}
+                  placeholder="Chọn phòng ban"
+                  value={selectedDepartment}
+                  onChange={setSelectedDepartment}
+                  size="large"
+                >
+                  <Option value="all">Tất cả phòng ban</Option>
+                  {departments.map((dept) => (
+                    <Option key={dept} value={dept}>
+                      {dept}
+                    </Option>
+                  ))}
+                </Select>
+              </Col>
+              <Col xs={24} sm={24} md={8}>
+                <RangePicker
+                  style={{ width: '100%' }}
+                  placeholder={['Từ ngày', 'Đến ngày']}
+                  size="large"
+                />
+              </Col>
+            </Row>
+          </Card>
 
-        {/* Ghi chú */}
-        <Card
-          bordered={false}
-          style={{
-            marginTop: '24px',
-            borderRadius: '12px',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-          }}
-          title={<span style={{ fontWeight: 600 }}>Chú giải</span>}
-          size="small"
-        >
-          <Space direction="vertical" size="small">
-            <Space>
-              <Tag color="success">Xuất sắc</Tag>
-              <span>Tiến độ ≥ 80%, Đánh giá ≥ 4.5 sao</span>
+          {/* Bảng danh sách */}
+          <Card
+            bordered={false}
+            style={{
+              borderRadius: '12px',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+            }}
+            title={
+              <Space>
+                <Badge count={filteredData.length} showZero color="#2c86ff" />
+                <span style={{ fontSize: '16px', fontWeight: 600 }}>Danh sách nhân viên học việc</span>
+              </Space>
+            }
+          >
+            <Table
+              columns={columns}
+              dataSource={filteredData}
+              scroll={{ x: 1400 }}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showTotal: (total) => `Tổng ${total} học viên`,
+              }}
+            />
+          </Card>
+
+          {/* Ghi chú */}
+          <Card
+            bordered={false}
+            style={{
+              marginTop: '24px',
+              borderRadius: '12px',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+            }}
+            title={<span style={{ fontWeight: 600 }}>Chú giải</span>}
+            size="small"
+          >
+            <Space direction="vertical" size="small">
+              <Space>
+                <Tag color="success">Xuất sắc</Tag>
+                <span>Tiến độ ≥ 80%, Đánh giá ≥ 4.5 sao</span>
+              </Space>
+              <Space>
+                <Tag color="processing">Tốt</Tag>
+                <span>Tiến độ 60-79%, Đánh giá 4.0-4.4 sao</span>
+              </Space>
+              <Space>
+                <Tag color="warning">Trung bình</Tag>
+                <span>Tiến độ 50-59%, Đánh giá 3.0-3.9 sao</span>
+              </Space>
+              <Space>
+                <Tag color="error">Cần cải thiện</Tag>
+                <span>Tiến độ {'<'} 50%, Đánh giá {'<'} 3.0 sao</span>
+              </Space>
             </Space>
-            <Space>
-              <Tag color="processing">Tốt</Tag>
-              <span>Tiến độ 60-79%, Đánh giá 4.0-4.4 sao</span>
-            </Space>
-            <Space>
-              <Tag color="warning">Trung bình</Tag>
-              <span>Tiến độ 50-59%, Đánh giá 3.0-3.9 sao</span>
-            </Space>
-            <Space>
-              <Tag color="error">Cần cải thiện</Tag>
-              <span>Tiến độ {'<'} 50%, Đánh giá {'<'} 3.0 sao</span>
-            </Space>
-          </Space>
-        </Card>
+          </Card>
         </Spin>
       </Content>
 
@@ -683,7 +901,6 @@ export default function InternEvaluationPage() {
         }}
       >
         <Row gutter={[32, 32]}>
-          {/* Thông tin công ty */}
           <Col xs={24} sm={12} md={8}>
             <Space direction="vertical" size="middle">
               <div
@@ -741,7 +958,6 @@ export default function InternEvaluationPage() {
             </Space>
           </Col>
 
-          {/* Liên kết nhanh */}
           <Col xs={24} sm={12} md={8}>
             <h3 style={{ color: '#fff', fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>
               Liên kết nhanh
@@ -765,7 +981,6 @@ export default function InternEvaluationPage() {
             </Space>
           </Col>
 
-          {/* Thông tin liên hệ */}
           <Col xs={24} sm={24} md={8}>
             <h3 style={{ color: '#fff', fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>
               Thông tin liên hệ
@@ -813,6 +1028,351 @@ export default function InternEvaluationPage() {
           </Col>
         </Row>
       </Footer>
+
+      {/* Modal Thêm/Sửa học viên */}
+      <Modal
+        title={editingIntern ? 'Chỉnh sửa học viên' : 'Thêm học viên mới'}
+        open={isModalVisible}
+        onOk={handleAddEdit}
+        onCancel={() => {
+          setIsModalVisible(false);
+          form.resetFields();
+          setEditingIntern(null);
+        }}
+        okText={editingIntern ? 'Cập nhật' : 'Thêm'}
+        cancelText="Hủy"
+        width={600}
+      >
+        <Form form={form} layout="vertical" style={{ marginTop: '24px' }}>
+          <Form.Item
+            name="name"
+            label="Họ và tên"
+            rules={[{ required: true, message: 'Vui lòng nhập họ tên!' }]}
+          >
+            <Input placeholder="Nhập họ và tên" size="large" />
+          </Form.Item>
+
+          <Form.Item
+            name="department"
+            label="Phòng ban"
+            rules={[{ required: true, message: 'Vui lòng chọn phòng ban!' }]}
+          >
+            <Select placeholder="Chọn phòng ban" size="large">
+              <Option value="IT">IT</Option>
+              <Option value="Marketing">Marketing</Option>
+              <Option value="Design">Design</Option>
+              <Option value="HR">HR</Option>
+              <Option value="Sales">Sales</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="startDate"
+            label="Ngày bắt đầu"
+            rules={[{ required: true, message: 'Vui lòng chọn ngày bắt đầu!' }]}
+          >
+            <DatePicker
+              style={{ width: '100%' }}
+              placeholder="Chọn ngày"
+              format="DD/MM/YYYY"
+              size="large"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="status"
+            label="Trạng thái"
+            rules={[{ required: true, message: 'Vui lòng chọn trạng thái!' }]}
+          >
+            <Select placeholder="Chọn trạng thái" size="large">
+              <Option value="Excellent">Xuất sắc</Option>
+              <Option value="Good">Tốt</Option>
+              <Option value="Average">Trung bình</Option>
+              <Option value="Needs Improvement">Cần cải thiện</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="feedback" label="Nhận xét">
+            <TextArea rows={4} placeholder="Nhập nhận xét về học viên" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Drawer Đánh giá chi tiết */}
+      <Drawer
+        title={
+          <Space>
+            <StarOutlined style={{ color: '#faad14' }} />
+            <span>Đánh giá học viên</span>
+          </Space>
+        }
+        placement="right"
+        width={600}
+        onClose={() => setIsEvaluationDrawerVisible(false)}
+        open={isEvaluationDrawerVisible}
+        footer={
+          <Space style={{ float: 'right' }}>
+            <Button onClick={() => setIsEvaluationDrawerVisible(false)}>
+              Hủy
+            </Button>
+            <Button type="primary" onClick={handleEvaluation} icon={<CheckCircleOutlined />}>
+              Lưu đánh giá
+            </Button>
+          </Space>
+        }
+      >
+        {selectedIntern && (
+          <>
+            <Card
+              style={{ marginBottom: '24px', background: '#f5f7fa' }}
+              bordered={false}
+            >
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Space>
+                  <Avatar src={selectedIntern.avatar} size={64} />
+                  <div>
+                    <h3 style={{ margin: 0 }}>{selectedIntern.name}</h3>
+                    <p style={{ margin: 0, color: '#666' }}>{selectedIntern.department}</p>
+                  </div>
+                </Space>
+              </Space>
+            </Card>
+
+            <Form form={evaluationForm} layout="vertical">
+              <h4 style={{ marginTop: '16px', marginBottom: '16px' }}>Đánh giá các tiêu chí</h4>
+
+              <Form.Item
+                name="skillRating"
+                label="Kỹ năng chuyên môn"
+                rules={[{ required: true, message: 'Vui lòng đánh giá!' }]}
+              >
+                <Rate allowHalf style={{ fontSize: '24px' }} />
+              </Form.Item>
+
+              <Form.Item
+                name="attitudeRating"
+                label="Thái độ làm việc"
+                rules={[{ required: true, message: 'Vui lòng đánh giá!' }]}
+              >
+                <Rate allowHalf style={{ fontSize: '24px' }} />
+              </Form.Item>
+
+              <Form.Item
+                name="teamworkRating"
+                label="Làm việc nhóm"
+                rules={[{ required: true, message: 'Vui lòng đánh giá!' }]}
+              >
+                <Rate allowHalf style={{ fontSize: '24px' }} />
+              </Form.Item>
+
+              <Form.Item
+                name="communicationRating"
+                label="Kỹ năng giao tiếp"
+                rules={[{ required: true, message: 'Vui lòng đánh giá!' }]}
+              >
+                <Rate allowHalf style={{ fontSize: '24px' }} />
+              </Form.Item>
+
+              <Form.Item
+                name="creativityRating"
+                label="Tư duy sáng tạo"
+                rules={[{ required: true, message: 'Vui lòng đánh giá!' }]}
+              >
+                <Rate allowHalf style={{ fontSize: '24px' }} />
+              </Form.Item>
+
+              <Divider />
+
+              <Form.Item
+                name="feedback"
+                label="Nhận xét chi tiết"
+                rules={[{ required: true, message: 'Vui lòng nhập nhận xét!' }]}
+              >
+                <TextArea
+                  rows={4}
+                  placeholder="Nhập nhận xét chi tiết về học viên..."
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="recommendations"
+                label="Đề xuất phát triển"
+              >
+                <TextArea
+                  rows={3}
+                  placeholder="Nhập đề xuất để học viên phát triển tốt hơn..."
+                />
+              </Form.Item>
+            </Form>
+          </>
+        )}
+      </Drawer>
+
+      {/* Drawer Xem chi tiết */}
+      <Drawer
+        title={
+          <Space>
+            <EyeOutlined style={{ color: '#2c86ff' }} />
+            <span>Thông tin chi tiết</span>
+          </Space>
+        }
+        placement="right"
+        width={700}
+        onClose={() => setIsDetailDrawerVisible(false)}
+        open={isDetailDrawerVisible}
+      >
+        {selectedIntern && (
+          <Tabs defaultActiveKey="1">
+            <TabPane tab="Thông tin cơ bản" key="1">
+              <Card
+                style={{ marginBottom: '24px' }}
+                bordered={false}
+              >
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  <Space>
+                    <Avatar src={selectedIntern.avatar} size={80} />
+                    <div>
+                      <h2 style={{ margin: 0 }}>{selectedIntern.name}</h2>
+                      <Tag color={
+                        selectedIntern.status === 'excellent' ? 'success' :
+                          selectedIntern.status === 'good' ? 'processing' :
+                            selectedIntern.status === 'average' ? 'warning' : 'error'
+                      }>
+                        {selectedIntern.status === 'excellent' ? 'Xuất sắc' :
+                          selectedIntern.status === 'good' ? 'Tốt' :
+                            selectedIntern.status === 'average' ? 'Trung bình' : 'Cần cải thiện'}
+                      </Tag>
+                    </div>
+                  </Space>
+                </Space>
+              </Card>
+
+              <Descriptions bordered column={1}>
+                <Descriptions.Item label="Phòng ban">
+                  {selectedIntern.department}
+                </Descriptions.Item>
+                <Descriptions.Item label="Người hướng dẫn">
+                  {selectedIntern.mentor}
+                </Descriptions.Item>
+                <Descriptions.Item label="Ngày bắt đầu">
+                  {selectedIntern.startDate}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian làm việc">
+                  {selectedIntern.duration}
+                </Descriptions.Item>
+                <Descriptions.Item label="Tiến độ">
+                  <Progress percent={selectedIntern.progress} strokeColor="#2c86ff" />
+                </Descriptions.Item>
+                <Descriptions.Item label="Đánh giá">
+                  <Rate disabled value={selectedIntern.rating} />
+                </Descriptions.Item>
+                <Descriptions.Item label="Công việc hoàn thành">
+                  {selectedIntern.tasksCompleted}/{selectedIntern.totalTasks} tasks
+                </Descriptions.Item>
+                <Descriptions.Item label="Chuyên cần">
+                  <span style={{
+                    color: selectedIntern.attendance >= 90 ? '#52c41a' :
+                      selectedIntern.attendance >= 80 ? '#faad14' : '#ff4d4f',
+                    fontWeight: 600
+                  }}>
+                    {selectedIntern.attendance}%
+                  </span>
+                </Descriptions.Item>
+              </Descriptions>
+
+              <Card
+                title="Nhận xét"
+                style={{ marginTop: '24px' }}
+                bordered={false}
+              >
+                <p>{selectedIntern.feedback}</p>
+              </Card>
+            </TabPane>
+
+            <TabPane tab="Lịch sử đánh giá" key="2">
+              <Timeline
+                items={[
+                  {
+                    color: 'green',
+                    children: (
+                      <>
+                        <p style={{ fontWeight: 600 }}>Đánh giá tháng 11/2024</p>
+                        <p>Kỹ năng: <Rate disabled defaultValue={4.5} style={{ fontSize: '14px' }} /></p>
+                        <p style={{ color: '#666' }}>Tiến bộ rõ rệt về kỹ năng coding</p>
+                      </>
+                    ),
+                  },
+                  {
+                    color: 'blue',
+                    children: (
+                      <>
+                        <p style={{ fontWeight: 600 }}>Đánh giá tháng 10/2024</p>
+                        <p>Kỹ năng: <Rate disabled defaultValue={4.0} style={{ fontSize: '14px' }} /></p>
+                        <p style={{ color: '#666' }}>Làm việc chăm chỉ, cần cải thiện teamwork</p>
+                      </>
+                    ),
+                  },
+                  {
+                    color: 'gray',
+                    children: (
+                      <>
+                        <p style={{ fontWeight: 600 }}>Đánh giá tháng 9/2024</p>
+                        <p>Kỹ năng: <Rate disabled defaultValue={3.5} style={{ fontSize: '14px' }} /></p>
+                        <p style={{ color: '#666' }}>Bắt đầu làm quen với công việc</p>
+                      </>
+                    ),
+                  },
+                ]}
+              />
+            </TabPane>
+
+            <TabPane tab="Thống kê" key="3">
+              <Row gutter={[16, 16]}>
+                <Col span={12}>
+                  <Card>
+                    <Statistic
+                      title="Số ngày làm việc"
+                      value={90}
+                      suffix="ngày"
+                      valueStyle={{ color: '#2c86ff' }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={12}>
+                  <Card>
+                    <Statistic
+                      title="Tasks hoàn thành"
+                      value={selectedIntern.tasksCompleted}
+                      suffix={`/ ${selectedIntern.totalTasks}`}
+                      valueStyle={{ color: '#52c41a' }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={12}>
+                  <Card>
+                    <Statistic
+                      title="Chuyên cần"
+                      value={selectedIntern.attendance}
+                      suffix="%"
+                      valueStyle={{ color: '#faad14' }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={12}>
+                  <Card>
+                    <Statistic
+                      title="Đánh giá trung bình"
+                      value={selectedIntern.rating}
+                      suffix="/ 5.0"
+                      valueStyle={{ color: '#eb2f96' }}
+                    />
+                  </Card>
+                </Col>
+              </Row>
+            </TabPane>
+          </Tabs>
+        )}
+      </Drawer>
     </Layout>
   );
 }
